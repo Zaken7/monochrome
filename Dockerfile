@@ -3,6 +3,8 @@
 # Stage 1: Build
 FROM node:22-alpine AS builder
 
+ARG APP_VERSION=dev
+
 WORKDIR /app
 
 # Install build dependencies
@@ -25,6 +27,8 @@ RUN npm run build
 
 # Stage 2: Production
 FROM node:22-alpine AS production
+
+ARG APP_VERSION=dev
 
 WORKDIR /app
 
@@ -54,7 +58,8 @@ EXPOSE 5173
 # Set environment variables
 ENV NODE_ENV=production \
     PORT=5173 \
-    SERVER_DOWNLOAD=ENABLED
+    SERVER_DOWNLOAD=ENABLED \
+    APP_VERSION=${APP_VERSION}
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

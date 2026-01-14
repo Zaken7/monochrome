@@ -22,7 +22,10 @@ pipeline {
             steps {
                 script {
                     // Build the image using the Dockerfile in the root
-                    dockerImage = docker.build("${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}")
+                    dockerImage = docker.build(
+                        "${DOCKER_USER}/${IMAGE_NAME}:${IMAGE_TAG}",
+                        "--build-arg APP_VERSION=${IMAGE_TAG} ."
+                    )
                 }
             }
         }

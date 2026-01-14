@@ -226,7 +226,8 @@ const server = app.listen(PORT, '0.0.0.0')
     }
   })
   .on('listening', () => {
-    console.log(`[INFO] Monochrome server v1.1.0`);
+    const appVersion = process.env.APP_VERSION || '1.1.0';
+    console.log(`[INFO] Monochrome server v${appVersion}`);
     console.log(`[INFO] Environment: ${NODE_ENV}`);
     console.log(`[INFO] Server running on port ${PORT}`);
     console.log(`[INFO] Music directory: ${MUSIC_DIR}`);
