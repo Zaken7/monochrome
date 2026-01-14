@@ -5,10 +5,11 @@ import { fileURLToPath } from 'url';
 import { pipeline } from 'stream/promises';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const APP_ROOT = join(__dirname, '..');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const MUSIC_DIR = process.env.MUSIC_DIR || join(__dirname, 'data', 'music');
+const MUSIC_DIR = process.env.MUSIC_DIR || join(APP_ROOT, 'data', 'music');
 const NODE_ENV = process.env.NODE_ENV || 'development';
 const IS_PRODUCTION = NODE_ENV === 'production';
 
@@ -40,8 +41,9 @@ app.use((req, res, next) => {
 });
 
 // Serve static files if dist exists
-if (existsSync(join(__dirname, 'dist'))) {
-    app.use(express.static('dist', {
+const distPath = join(APP_ROOT, 'dist');
+if (existsSync(distPath)) {
+    app.use(express.static(distPath, {
         maxAge: IS_PRODUCTION ? '1d' : 0,
         etag: true
     }));
@@ -197,7 +199,7 @@ app.get('/api/files', (req, res) => {
 
 // Serve the SPA for all other routes (only if dist exists)
 app.get('*', (req, res) => {
-    const indexPath = join(__dirname, 'dist', 'index.html');
+    const indexPath = join(APP_ROOT, 'dist', 'index.html');
     if (existsSync(indexPath)) {
         res.sendFile(indexPath);
     } else {
