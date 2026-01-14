@@ -1,7 +1,7 @@
 pipeline {
     agent {
-      any
-    } 
+        label 'any'
+    }
 
     environment {
         // Change these to match your setup
