@@ -5,9 +5,9 @@ pipeline {
 
     environment {
         // Change these to match your setup
-        DOCKER_USER = 'your_dockerhub_username'
-        IMAGE_NAME  = 'my-app'
-        IMAGE_TAG   = "${env.BUILD_ID}" // Uses the Jenkins build number as the tag
+        DOCKER_USER = 'zaken7'
+        IMAGE_NAME  = 'monochrome'
+        IMAGE_TAG   = "1.1.${env.BUILD_ID}" // Uses the Jenkins build number as the tag
     }
 
     stages {
@@ -31,7 +31,7 @@ pipeline {
             steps {
                 script {
                     // Use the ID we created in Step 2
-                    docker.withRegistry('', 'docker-hub-credentials') {
+                    docker.withRegistry('', 'dockerhub-creds-token') {
                         dockerImage.push()
                         dockerImage.push("latest") // Also tag and push as 'latest'
                     }
