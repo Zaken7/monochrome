@@ -34,7 +34,7 @@ RUN npm ci --only=production && npm cache clean --force
 
 # Copy built application from builder
 COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/server.js ./server.js
+COPY --from=builder /app/js ./js
 COPY --from=builder /app/public ./public
 
 # Create non-root user
@@ -61,4 +61,4 @@ HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD node -e "require('http').get('http://localhost:5173/api/health', (r) => {process.exit(r.statusCode === 200 ? 0 : 1)})"
 
 # Start the server
-CMD ["node", "server.js"]
+CMD ["node", "js/server.js"]

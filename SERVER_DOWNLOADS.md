@@ -6,7 +6,7 @@ Monochrome now supports server-side music downloads. When running in Docker or w
 ## How It Works
 
 ### Architecture
-1. **Backend Server** (`server.js`): Express.js server that serves the app and handles download requests
+1. **Backend Server** (`js/server.js`): Express.js server that serves the app and handles download requests
 2. **Download API** (`js/downloads-server.js`): Client-side module for communicating with the backend
 3. **Modified Download Logic** (`js/downloads.js`): Automatically detects if server-side downloads are available and uses them
 
