@@ -2,9 +2,30 @@
 import { buildTrackFilename, sanitizeForFilename, RATE_LIMIT_ERROR_MESSAGE, getTrackArtists, getTrackTitle, formatTemplate, SVG_CLOSE, getCoverBlob } from './utils.js';
 import { lyricsSettings } from './storage.js';
 import { addMetadataToAudio } from './metadata.js';
+import { downloadBlobToServer, downloadLyricsToServer, checkServerDownloadAvailable } from './downloads-server.js';
 
 const downloadTasks = new Map();
 let downloadNotificationContainer = null;
+let serverDownloadEnabled = false;
+
+// Check if server-side downloads are available on load
+checkServerDownloadAvailable().then(available => {
+    serverDownloadEnabled = available;
+    console.log('[Downloads] Server-side downloads:', available ? 'ENABLED' : 'DISABLED');
+    if (available) {
+        console.log('[Downloads] Files will be saved to server at /app/data/music');
+    } else {
+        console.log('[Downloads] Files will be downloaded to browser');
+    }
+}).catch(err => {
+    console.error('[Downloads] Failed to check server availability:', err);
+    serverDownloadEnabled = false;
+});
+
+// Export for debugging
+export function isServerDownloadEnabled() {
+    return serverDownloadEnabled;
+}
 
 /**
  * Adds a cover blob to a JSZip instance
@@ -278,7 +299,14 @@ async function downloadTracksToZip(zip, tracks, folderName, api, quality, lyrics
 
         try {
             const blob = await downloadTrackBlob(track, quality, api);
-            zip.file(`${folderName}/${filename}`, blob);
+            
+            if (serverDownloadEnabled) {
+                // Save to server instead of ZIP
+                await downloadBlobToServer(blob, filename, folderName);
+            } else {
+                // Add to ZIP for browser download
+                zip.file(`${folderName}/${filename}`, blob);
+            }
 
             if (lyricsManager && lyricsSettings.shouldDownloadLyrics()) {
                 try {
@@ -287,7 +315,11 @@ async function downloadTracksToZip(zip, tracks, folderName, api, quality, lyrics
                         const lrcContent = lyricsManager.generateLRCContent(lyricsData, track);
                         if (lrcContent) {
                             const lrcFilename = filename.replace(/\.[^.]+$/, '.lrc');
-                            zip.file(`${folderName}/${lrcFilename}`, lrcContent);
+                            if (serverDownloadEnabled) {
+                                await downloadLyricsToServer(lrcContent, lrcFilename, folderName);
+                            } else {
+                                zip.file(`${folderName}/${lrcFilename}`, lrcContent);
+                            }
                         }
                     }
                 } catch (error) {
@@ -311,9 +343,9 @@ export async function downloadAlbumAsZip(album, tracks, api, quality, lyricsMana
         year: year
     });
 
-    // Only prompt for save location if we have >= 20 tracks (to capture user gesture early)
-    // Otherwise, we'll auto-download the blob at the end
-    const initResult = await initializeZipDownload(folderName, tracks.length >= 20);
+    // Skip file picker if server-side downloads are enabled
+    const useFilePicker = !serverDownloadEnabled && tracks.length >= 20;
+    const initResult = await initializeZipDownload(folderName, useFilePicker);
     if (!initResult) return; // User cancelled
     const { zip, fileHandle } = initResult;
 
@@ -321,9 +353,21 @@ export async function downloadAlbumAsZip(album, tracks, api, quality, lyricsMana
     const notification = createBulkDownloadNotification('album', album.title, tracks.length);
 
     try {
-        addCoverBlobToZip(zip, folderName, coverBlob);
+        if (!serverDownloadEnabled) {
+            addCoverBlobToZip(zip, folderName, coverBlob);
+        } else if (coverBlob) {
+            // Save cover to server
+            await downloadBlobToServer(coverBlob, 'cover.jpg', folderName);
+        }
+        
         await downloadTracksToZip(zip, tracks, folderName, api, quality, lyricsManager, notification);
-        await generateAndDownloadZip(zip, folderName, notification, tracks.length, fileHandle);
+        
+        if (serverDownloadEnabled) {
+            // No ZIP needed, files are on server
+            completeBulkDownload(notification, true);
+        } else {
+            await generateAndDownloadZip(zip, folderName, notification, tracks.length, fileHandle);
+        }
     } catch (error) {
         completeBulkDownload(notification, false, error.message);
         throw error;
@@ -337,7 +381,9 @@ export async function downloadPlaylistAsZip(playlist, tracks, api, quality, lyri
         year: new Date().getFullYear()
     });
 
-    const initResult = await initializeZipDownload(folderName, tracks.length >= 20);
+    // Skip file picker if server-side downloads are enabled
+    const useFilePicker = !serverDownloadEnabled && tracks.length >= 20;
+    const initResult = await initializeZipDownload(folderName, useFilePicker);
     if (!initResult) return; // User cancelled
     const { zip, fileHandle } = initResult;
 
@@ -347,10 +393,20 @@ export async function downloadPlaylistAsZip(playlist, tracks, api, quality, lyri
         // Find a representative cover for the playlist (first track with cover)
         const representativeTrack = tracks.find(t => t.album?.cover);
         const coverBlob = await getCoverBlob(api, representativeTrack?.album?.cover);
-        addCoverBlobToZip(zip, folderName, coverBlob);
+        
+        if (!serverDownloadEnabled) {
+            addCoverBlobToZip(zip, folderName, coverBlob);
+        } else if (coverBlob) {
+            await downloadBlobToServer(coverBlob, 'cover.jpg', folderName);
+        }
 
         await downloadTracksToZip(zip, tracks, folderName, api, quality, lyricsManager, notification);
-        await generateAndDownloadZip(zip, folderName, notification, tracks.length, fileHandle);
+        
+        if (serverDownloadEnabled) {
+            completeBulkDownload(notification, true);
+        } else {
+            await generateAndDownloadZip(zip, folderName, notification, tracks.length, fileHandle);
+        }
     } catch (error) {
         completeBulkDownload(notification, false, error.message);
         throw error;
@@ -360,8 +416,9 @@ export async function downloadPlaylistAsZip(playlist, tracks, api, quality, lyri
 export async function downloadDiscography(artist, api, quality, lyricsManager = null) {
     const rootFolder = `${sanitizeForFilename(artist.name)} discography`;
 
-    // Always use file picker for discography as it's likely large
-    const initResult = await initializeZipDownload(rootFolder, true);
+    // Skip file picker if server-side downloads are enabled
+    const useFilePicker = !serverDownloadEnabled;
+    const initResult = await initializeZipDownload(rootFolder, useFilePicker);
     if (!initResult) return; // User cancelled
     const { zip, fileHandle } = initResult;
 
@@ -498,6 +555,7 @@ export async function downloadTrackWithMetadata(track, quality, api, lyricsManag
     }
 
     const filename = buildTrackFilename(track, quality);
+    const folderName = '';
 
     const controller = abortController || new AbortController();
 
@@ -509,21 +567,36 @@ export async function downloadTrackWithMetadata(track, quality, api, lyricsManag
             api
         );
 
-        await api.downloadTrack(track.id, quality, filename, {
-            signal: controller.signal,
-            track: track,
-            onProgress: (progress) => {
-                updateDownloadProgress(track.id, progress);
-            }
-        });
-
-        completeDownloadTask(track.id, true);
+        if (serverDownloadEnabled) {
+            // Server-side download
+            const blob = await downloadTrackBlob(track, quality, api);
+            await downloadBlobToServer(blob, filename, folderName);
+            completeDownloadTask(track.id, true);
+        } else {
+            // Browser download
+            await api.downloadTrack(track.id, quality, filename, {
+                signal: controller.signal,
+                track: track,
+                onProgress: (progress) => {
+                    updateDownloadProgress(track.id, progress);
+                }
+            });
+            completeDownloadTask(track.id, true);
+        }
 
         if (lyricsManager && lyricsSettings.shouldDownloadLyrics()) {
             try {
                 const lyricsData = await lyricsManager.fetchLyrics(track.id, track);
                 if (lyricsData) {
-                    lyricsManager.downloadLRC(lyricsData, track);
+                    if (serverDownloadEnabled) {
+                        const lrcContent = lyricsManager.generateLRCContent(lyricsData, track);
+                        if (lrcContent) {
+                            const lrcFilename = filename.replace(/\.[^.]+$/, '.lrc');
+                            await downloadLyricsToServer(lrcContent, lrcFilename, folderName);
+                        }
+                    } else {
+                        lyricsManager.downloadLRC(lyricsData, track);
+                    }
                 }
             } catch (error) {
                 console.log('Could not download lyrics for track');
